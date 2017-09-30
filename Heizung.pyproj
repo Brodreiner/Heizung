@@ -1,0 +1,55 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>e3e20faa-121c-4561-87f8-14152400d398</ProjectGuid>
+    <ProjectHome>.</ProjectHome>
+    <StartupFile>main.py</StartupFile>
+    <SearchPath>
+    </SearchPath>
+    <WorkingDirectory>.</WorkingDirectory>
+    <OutputPath>.</OutputPath>
+    <Name>Heizung</Name>
+    <RootNamespace>Heizung</RootNamespace>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="main.py" />
+    <Compile Include="mainloop.py" />
+    <Compile Include="Mischer.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="mischer_alt.py" />
+    <Compile Include="Notabschaltung.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="plot.py" />
+    <Compile Include="plot_manual.py" />
+    <Compile Include="pumpe.py" />
+    <Compile Include="sql.py" />
+    <Compile Include="temperature.py" />
+    <Compile Include="Temperatursensor.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Wetter.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="autostart.sh" />
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
+  <!-- Uncomment the CoreCompile target to enable the Build command in
+       Visual Studio and specify your pre- and post-build commands in
+       the BeforeBuild and AfterBuild targets below. -->
+  <!--<Target Name="CoreCompile" />-->
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+</Project>

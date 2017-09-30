@@ -1,90 +1,57 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
+REGELINTERVALL = 10 # nur alle 10 Sekunden, soll der Mischermotor angesteuert werden werden
+MAX_REGELDIFFERENZ = 10.0 # Nur maximal 10 Grad Regelabweichung werden beruecksichtigt, damit der Regler nicht zu agressiv regelt
+HYSTERESE_VORLAUFTEMPERATUR = 0.8 # Temperaturbereich, innerhalb dem nicht nachgeregelt wird
+STELLZEIT_PRO_KELVIN_TEMP_DIFF = 0.3; # Wie viele Sekunden soll der Mischermotor pro Kelvin Temperaturabweichung und Regelintervall angesteuert werden?
 
-import RPi.GPIO as GPIO
-GPIO.setwarnings(False)
-import subprocess
-import mainloop
-import time
+SOLL_VORLAUFTEMPERATUR_BEI_MINUS_10_GRAD = 42.0
+SOLL_VORLAUFTEMPERATUR_BEI_PLUS_10_GRAD = 35.0
 
+from time import sleep
+import Temperatursensor
+from Mischer import mischerAuf, mischerZu
+import Wetter
+from Notabschaltung import TEMPERATUR_NOTABSCHALTUNG
 
+#####################################################################################################
 
-import cherrypy
-import cStringIO
-import numpy
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot
-import matplotlib.dates
-import datetime
-import time
-import threading
-import sql
-sql.reportError("INFO", "RESTART", "Die Heizungsregelung wurde neu gestartet!")
+SOLL_VORLAUFTEMPERATUR_BEI_0_GRAD = (SOLL_VORLAUFTEMPERATUR_BEI_MINUS_10_GRAD + SOLL_VORLAUFTEMPERATUR_BEI_PLUS_10_GRAD) / 2.0
+SOLL_VORLAUFTEMPERATUR_STEIGUNG = (SOLL_VORLAUFTEMPERATUR_BEI_PLUS_10_GRAD - SOLL_VORLAUFTEMPERATUR_BEI_MINUS_10_GRAD) / 20.0    # negative Steigung
 
-class HelloWorld(object):
-    def index(self, resetErrorLog=None, saveTargetFeedTemp=None, targetFeedTempAtMinusTenDegree=None, targetFeedTempAtPlusTenDegree=None):
-        if saveTargetFeedTemp:
-            sql.setConfigValue("targetFeedTempAtMinusTenDegree", targetFeedTempAtMinusTenDegree)
-            sql.setConfigValue("targetFeedTempAtPlusTenDegree", targetFeedTempAtPlusTenDegree)
-            raise cherrypy.HTTPRedirect("")
-        if resetErrorLog:
-            sql.resetErrorLog()
-            raise cherrypy.HTTPRedirect("")
-        targetFeedTempAtMinusTenDegree = sql.getConfigValue("targetFeedTempAtMinusTenDegree")
-        targetFeedTempAtPlusTenDegree = sql.getConfigValue("targetFeedTempAtPlusTenDegree")
-        if not targetFeedTempAtMinusTenDegree:
-            targetFeedTempAtMinusTenDegree = 40.0
-        if not targetFeedTempAtPlusTenDegree:
-            targetFeedTempAtPlusTenDegree = 32.0
+historie = []
+historieString = ""
 
-        returnBuffer = cStringIO.StringIO()
-        
-        bytes = open("/tmp/tempPlot.png", "rb").read()
-        returnBuffer.write("""<html><body>""")
-        returnBuffer.write("""
-        <form method="post">
-            <table>
-                <tr>
-                    <th>Vorlauf1 bei -10&deg;C:</th>
-                    <td><input type="text" name="targetFeedTempAtMinusTenDegree" value="%d"/></td>
-                </tr>
-                <tr>
-                    <th>Vorlauf1 bei +10&deg;C:</th>
-                    <td><input type="text" name="targetFeedTempAtPlusTenDegree" value="%d"/></td>
-                </tr>
-                <tr>
-                    <th></th>
-                    <td><input type="submit" name="saveTargetFeedTemp" value="speichern"/></td>
-                </tr>
-            </table>
-        </form>
-        """ % (targetFeedTempAtMinusTenDegree, targetFeedTempAtPlusTenDegree)
-        )
-        returnBuffer.write("""<img src="data:image/png;base64,%s"/>""" % bytes.encode("base64").strip())
+Schleifenzaehler = 0
 
-        returnBuffer.write("""<br/><table border="1"><thead><tr><th>Datum / Uhrzeit</th><th>Fehlertyp</th><th>Fehlertext</th><tr><thead><tbody>""")
-        errorHistory = sql.getLastWeekErrors()
-        for timestamp, errorLevel, errorType, text in errorHistory:
-            if errorLevel == "INFO":
-                color = "white"
-            elif errorLevel == "WARNING":
-                color = "yellow"
-            elif errorLevel == "ERROR":
-                color = "red"
-            else:
-                color = "white"
-            returnBuffer.write("""<tr style="background-color:%s"><td>%s</td><td>%s</td><td>%s</td></tr>""" % (color, timestamp, errorType, text))
+sleep(3) # Bevor die Regelschleife startet, sollten wir warten, bis Temperatursensor gelesen und Aussentemperatur vom Server abgefragt wurden.
 
-        returnBuffer.write("""</tbody></table>""")
-        returnBuffer.write("""<form method="post"><input type="submit" name="resetErrorLog" value="Fehlerspeicher l&ouml;schen"/></form>""")
-        returnBuffer.write("""</body></html>""")
-
-        return returnBuffer.getvalue()
-
-    index.exposed = True
-
-#cherrypy.server.socket_host = '0.0.0.0'
-#cherrypy.quickstart(HelloWorld())
 while(True):
-    time.sleep(1)
+    tAussen = Wetter.aussentemperatur
+    tIst = Temperatursensor.vorlauftemperatur
+    tSoll = min(SOLL_VORLAUFTEMPERATUR_BEI_0_GRAD + (SOLL_VORLAUFTEMPERATUR_STEIGUNG * tAussen), TEMPERATUR_NOTABSCHALTUNG - 1.0) # Vorlauftemperatur darf maximal 1 Grad unterhalb der Notabschaltung sein.
+    tDelta = tIst - tSoll
+
+    print("tAussen=%.1f" %tAussen, "tSoll=%.1f" %tSoll, "tIst=%.1f" %tIst, "tDelta=%+.1f" %tDelta, "Zyklus: {0:2d}/{1}".format(Schleifenzaehler%REGELINTERVALL+1, REGELINTERVALL), "Historie:", historieString)
+
+    if Schleifenzaehler % REGELINTERVALL == 0: # Alle 10 Sekunden soll nachgeregelt werden
+        tDeltaRegel = max(-MAX_REGELDIFFERENZ, min(tDelta, MAX_REGELDIFFERENZ)) # tDelta auf Regelbereich begrenzen
+        if tDeltaRegel > HYSTERESE_VORLAUFTEMPERATUR:
+            stellzeit = tDeltaRegel * STELLZEIT_PRO_KELVIN_TEMP_DIFF
+            mischerZu(stellzeit)
+            print("Mischer {0:.1f} Sekunden zu.".format(stellzeit))
+        elif tDeltaRegel < -HYSTERESE_VORLAUFTEMPERATUR:
+            stellzeit = -tDeltaRegel * STELLZEIT_PRO_KELVIN_TEMP_DIFF
+            mischerAuf(stellzeit)
+            print("Mischer {0:.1f} Sekunden auf.".format(stellzeit))
+
+        # Historie
+        historie.append(tIst - tSoll)
+        if len(historie) > 10:
+            del historie[0]
+        historieString = ""
+        for element in reversed(historie):
+            if historieString:
+                historieString += " "
+            historieString += "{0:+.1f}".format(element)
+
+    Schleifenzaehler = Schleifenzaehler + 1
+    sleep(1)
