@@ -11,6 +11,7 @@ import threading
 import xml.etree.ElementTree as ET
 from urllib import request
 from time import sleep
+import sys
 
 class WetterError(Exception):
     pass
