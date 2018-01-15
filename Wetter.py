@@ -44,8 +44,8 @@ class WetterThread(threading.Thread):
         while True:
             try:
                 aussentemperatur = holeAussentemperaturVomServer()
-            except WetterError:
-                sys.stderr.write(str(WetterError) + "\n")
+            except WetterError as e:
+                sys.stderr.write(str(e) + "\n")
             sleep(60) # es reicht, die Aussentemperatur einmal pro Minute abzufragen
 
 wetterThread = WetterThread()
